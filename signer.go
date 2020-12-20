@@ -10,16 +10,17 @@ import (
 
 // сюда писать код
 
+// CombineResults combine all MultiHash hashes into one string
 func CombineResults(in, out chan interface{}) {
 	var hashes []string
 	for data := range in {
 		hashes = append(hashes, data.(string))
 	}
 	sort.Strings(hashes)
-	// sort and output
 	out <- strings.Join(hashes, "_")
 }
 
+// MultiHash adds iteration hashes to the SingleHash output
 func MultiHash(in, out chan interface{}) {
 	var wg sync.WaitGroup
 	hash := HashMaker{}
@@ -34,6 +35,7 @@ func MultiHash(in, out chan interface{}) {
 	wg.Wait()
 }
 
+// SingleHash outputs hash based on int number
 func SingleHash(in, out chan interface{}) {
 	var wg sync.WaitGroup
 	hash := HashMaker{}
@@ -49,6 +51,7 @@ func SingleHash(in, out chan interface{}) {
 	wg.Wait()
 }
 
+// ExecutePipeline executes jobs and provides data flow from one job to the next one
 func ExecutePipeline(jobs ...job) {
 	in := make(chan interface{})
 	var wg sync.WaitGroup
@@ -58,16 +61,17 @@ func ExecutePipeline(jobs ...job) {
 	wg.Wait()
 }
 
+// pipe gets data from input (in) channel, runs the job, send results to the next job input (in2) channel
 func pipe(j job, in chan interface{}, wg *sync.WaitGroup) chan interface{} {
 	out := make(chan interface{})
-	wg.Add(1)
+	in2 := make(chan interface{})
+
 	go func() {
 		j(in, out)
 		close(out)
 	}()
 
-	in2 := make(chan interface{})
-
+	wg.Add(1)
 	go func(wg *sync.WaitGroup) {
 		for i := range out {
 			in2 <- i
@@ -79,27 +83,27 @@ func pipe(j job, in chan interface{}, wg *sync.WaitGroup) chan interface{} {
 	return in2
 }
 
-// single hash maker
+// HashMaker used for making hashes
 type HashMaker struct {
 	sync.Mutex
 }
 
-// returns hash for int number, take 1s 10ms for run
+// GetHash returns hash for int number. It takes 1s 10ms for run
 func (h *HashMaker) GetHash(i int) string {
 	var wg sync.WaitGroup
-
 	chHash := make(chan string)
+
 	hash1 := func(str string, wg *sync.WaitGroup) {
-		chHash <- DataSignerCrc32(str) // take 1 sek
+		chHash <- DataSignerCrc32(str) // takes 1 sek
 		wg.Done()
 	}
 
 	hash2 := func(str string, wg *sync.WaitGroup) {
 		h.Lock()
-		str = DataSignerMd5(str) // take 10ms, overheat if 2 runs simultaneously
+		str = DataSignerMd5(str) // takes 10ms, overheat if 2 runs simultaneously
 		<-time.After(10 * time.Millisecond)
 		h.Unlock()
-		chHash <- DataSignerCrc32(str) // take 1 sek
+		chHash <- DataSignerCrc32(str) // takes 1 sek
 		wg.Done()
 	}
 
@@ -122,15 +126,14 @@ func (h *HashMaker) GetHash(i int) string {
 	return strings.Join(hashes, "~")
 }
 
-// returns advanced hash, take 1s for run
+// GetMultiHash returns advanced hash. It takes 1s for run
 func (h *HashMaker) GetMultiHash(str string) string {
-	var combined [6]string
 	const iterations = 6
+	var combined [iterations]string
 	var wg sync.WaitGroup
-
 	type ihash struct {
-		i int
-		s string
+		i int    // index
+		s string // hash
 	}
 	chHash := make(chan ihash)
 	hashed := func(i int, str string, wg *sync.WaitGroup) {
@@ -145,6 +148,7 @@ func (h *HashMaker) GetMultiHash(str string) string {
 		wg.Add(1)
 		go hashed(i, str, &wg)
 	}
+
 	go func() {
 		wg.Wait()
 		close(chHash)
@@ -153,7 +157,7 @@ func (h *HashMaker) GetMultiHash(str string) string {
 	for h := range chHash {
 		combined[h.i] = h.s
 	}
-
 	hashes := combined[:]
+
 	return strings.Join(hashes, "")
 }
