@@ -1,1 +1,1 @@
-# pipeline_jobs
+Go jobs pipeline example
